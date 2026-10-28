@@ -151,7 +151,7 @@ All models evaluated on identical 80/20 stratified train/test splits with 5-fold
 ## 📁 Repository Structure
 
 ```
-Topography-Adaptive-Road-Circuity-Freight-ETA-Prediction/
+Topography-Adaptive-Road-Circuity-Multi-Carrier-Freight-Transportation-ETA-Prediction/
 │
 ├── data/
 │   ├── freight_waybills_35k_anonymized.csv       # Primary benchmark (35,000 records)
@@ -199,8 +199,8 @@ Topography-Adaptive-Road-Circuity-Freight-ETA-Prediction/
 ### Step 1 — Environment Setup
 
 ```bash
-git clone https://github.com/ubashir43/Topography-Adaptive-Road-Circuity-Freight-ETA-Prediction.git
-cd Topography-Adaptive-Road-Circuity-Freight-ETA-Prediction
+git clone https://github.com/ubashir43/Topography-Adaptive-Road-Circuity-Multi-Carrier-Freight-Transportation-ETA-Prediction.git
+cd Topography-Adaptive-Road-Circuity-Multi-Carrier-Freight-Transportation-ETA-Prediction
 
 python -m venv venv
 source venv/bin/activate              # Windows: .\venv\Scripts\activate
@@ -277,5 +277,5 @@ This repository strictly complies with open-science reproducibility standards. A
 ---
 
 <p align="center">
-  <sub>Companion Platform: <a href="https://github.com/ubashir43/Apex-Logistics-AI-Autonomous-Control-Tower-Platform">Apex Logistics AI</a> — The production deployment of this research as an autonomous logistics intelligence platform.</sub>
+  <sub>Companion Platform: <a href="https://github.com/ubashir43/Apex-Logistics-AI-Autonomous-Multi-Carrier-Fleet-Control-Tower-Platform">Apex Logistics AI</a> — The production deployment of this research as an autonomous logistics intelligence platform.</sub>
 </p>
