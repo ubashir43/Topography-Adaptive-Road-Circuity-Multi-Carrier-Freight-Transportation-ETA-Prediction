@@ -151,25 +151,25 @@ All models evaluated on identical 80/20 stratified train/test splits with 5-fold
 ## 📁 Repository Structure
 
 ```
-topography-freight-eta/
+Topography-Adaptive-Road-Circuity-Freight-ETA-Prediction/
 │
 ├── data/
 │   ├── freight_waybills_35k_anonymized.csv       # Primary benchmark (35,000 records)
 │   └── freight_waybills_35k_anonymized.zip       # Compressed archive
 │
 ├── figures/                                       # Publication-quality figures (300 DPI)
-│   ├── fig1_introduction.png                      # Problem formulation & motivation
+│   ├── fig1_introduction.png                      # Operational causes of ETA error
 │   ├── fig2_background.png                        # Road circuity & topography analysis
-│   ├── fig3_methodology.png                       # Proposed architecture pipeline
-│   ├── fig4_actual_vs_predicted_hexbin.png        # Predicted vs actual hexbin density
-│   ├── fig5_residual_distribution_bias.png        # Error residual distributions
-│   ├── fig6_baseline_model_comparison_mae.png     # Baseline model MAE comparison
-│   ├── fig7_compliance_window_accuracy.png        # SLA compliance window accuracy
-│   ├── fig8_feature_importance_mdi_permutation.png # MDI & permutation importance
-│   ├── fig9_corridor_distance_ablation.png        # Corridor distance ablation
-│   ├── fig10_huber_loss_convergence_and_latency.png # Convergence & p95 latency
-│   ├── fig11_spatiotemporal_zone_and_dow_error.png # Zone heatmap & weekend dwell
-│   └── fig12_huber_delta_sensitivity_and_influence.png # δ sensitivity sweep
+│   ├── fig3_methodology.png                       # D-TAC-GBR architecture pipeline
+│   ├── fig4_sota_benchmark_comparison.png         # SOTA benchmark comparison (MAE, RMSE, SLA, Pareto)
+│   ├── fig5_dynamic_circuity_and_osrm_calibration.png # Dynamic circuity vs OSRM calibration
+│   ├── fig6_factorial_ablation_study.png          # 4-way factorial component ablation
+│   ├── fig7_shap_explainability_and_interactions.png # TreeSHAP global attribution & interactions
+│   ├── fig10_huber_loss_convergence_and_latency.png # Huber convergence & p95 latency
+│   ├── fig11_spatiotemporal_zone_and_dow_error.png # Origin-destination MAE & weekend dwell
+│   ├── fig12_huber_delta_sensitivity_and_influence.png # Huber δ sensitivity & influence
+│   ├── fig13_concurrency_throughput_and_latency_scaling.png # Concurrency throughput scaling
+│   └── fig14_live_control_tower_telemetry.png     # Live enterprise control tower telemetry
 │
 ├── results/                                       # Raw experimental outputs
 │   ├── benchmark_results.csv                      # Model comparison metrics
@@ -199,8 +199,8 @@ topography-freight-eta/
 ### Step 1 — Environment Setup
 
 ```bash
-git clone https://github.com/ubashir43/topography-freight-eta.git
-cd topography-freight-eta
+git clone https://github.com/ubashir43/Topography-Adaptive-Road-Circuity-Freight-ETA-Prediction.git
+cd Topography-Adaptive-Road-Circuity-Freight-ETA-Prediction
 
 python -m venv venv
 source venv/bin/activate              # Windows: .\venv\Scripts\activate
@@ -277,5 +277,5 @@ This repository strictly complies with open-science reproducibility standards. A
 ---
 
 <p align="center">
-  <sub>Companion Platform: <a href="https://github.com/ubashir43/apex-logistics-ai">Apex Logistics AI</a> — The production deployment of this research as an autonomous logistics intelligence platform.</sub>
+  <sub>Companion Platform: <a href="https://github.com/ubashir43/Apex-Logistics-AI-Autonomous-Control-Tower-Platform">Apex Logistics AI</a> — The production deployment of this research as an autonomous logistics intelligence platform.</sub>
 </p>
