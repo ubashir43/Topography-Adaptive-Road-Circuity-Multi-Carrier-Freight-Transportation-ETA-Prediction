@@ -1,0 +1,6 @@
+Model,MAE (hours),RMSE (hours),MAPE (%),Accuracy (<= 1h %),R2 Score,p95 Latency (ms)
+Static SLA Rules,39.828,45.912,227.83,0.1,-3.8388,0.01
+Euclidean Linear OLS,3.766,6.18,23.89,21.74,0.9123,0.05
+Random Forest (M=100),2.397,4.938,11.08,46.57,0.944,4.85
+XGBoost / Standard GBR,2.184,4.656,9.71,48.39,0.9502,1.2
+Circuity-Calibrated GBR (Ours),1.957,4.612,7.26,57.41,0.9512,0.76

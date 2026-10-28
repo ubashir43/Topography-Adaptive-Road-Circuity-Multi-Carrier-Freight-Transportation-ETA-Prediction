@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this benchmark dataset, code, or methodology in your research, please cite our paper as below."
+title: "Topography-Adaptive Road Circuity and Robust Gradient Boosting for Multi-Carrier Freight Transportation ETA Prediction"
+authors:
+  - family-names: "Bashir"
+    given-names: "Umer"
+    orcid: "https://orcid.org/0009-0000-0000-0000"
+  - family-names: "Shoukat"
+    given-names: "Muhammad Usman"
+  - family-names: "Shams"
+    given-names: "Muhammad Usman"
+date-released: 2026-10-28
+url: "https://github.com/ubashir43/topography-freight-eta"
+keywords:
+  - "Freight Logistics"
+  - "Estimated Time of Arrival (ETA)"
+  - "Road Circuity"
+  - "Huber Loss"
+  - "Gradient Boosted Decision Trees"
+  - "Multi-Carrier Linehaul"
+  - "Transportation Systems"
+license: "MIT"
