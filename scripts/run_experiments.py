@@ -1,305 +1,324 @@
-"""
-Paper 1 Empirical Experiments & Figure Generation
-Title: Dynamic Freight ETA Prediction Using Circuity-Calibrated Gradient Boosting in Multi-Carrier Networks
-Target: Transportation Research Part E (Q1, IF 10.1)
-"""
-
 import os
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.neural_network import MLPRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from scipy import stats
+import time
 
-# Set high-DPI publication styling
-sns.set_theme(style="whitegrid", font="DejaVu Sans")
-plt.rcParams.update({
-    'font.size': 11,
-    'axes.labelsize': 12,
-    'axes.titlesize': 13,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 10,
-    'figure.titlesize': 14,
-    'figure.dpi': 300,
-    'savefig.dpi': 300,
-    'figure.autolayout': True
-})
-
-OUTPUT_DIR = r"d:\Logistics Research\Paper1\figures"
-RESULTS_DIR = r"d:\Logistics Research\Paper1\results"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(RESULTS_DIR, exist_ok=True)
-
-print("="*60)
-print("1. Synthesizing Stratified Multi-Carrier Dataset (N = 35,000)...")
-print("="*60)
+# SOTA ML Libraries
+import xgboost as xgb
+import lightgbm as lgb
+import catboost as cb
+import shap
 
 np.random.seed(42)
 N = 35000
 
-# 1. Road distance (km) based on realistic corridors (150 km to 3,500 km)
-corridor_types = np.random.choice(['Regional', 'Inter-City', 'Cross-Country', 'Transcontinental'], size=N, p=[0.25, 0.35, 0.25, 0.15])
-distance_base = {
-    'Regional': np.random.uniform(50, 250, size=N),
-    'Inter-City': np.random.uniform(250, 800, size=N),
-    'Cross-Country': np.random.uniform(800, 2000, size=N),
-    'Transcontinental': np.random.uniform(2000, 3800, size=N)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+print("="*70)
+print("[START] RUNNING RIGOROUS EXPERIMENTAL SUITE FOR PAPER 1")
+print("="*70)
+
+# 1. Spatio-Temporal Corridor & Topography Simulation
+corridors = ['Urban Last-Mile', 'Inter-City Highway', 'Cross-Country Trunk', 'Transcontinental Linehaul']
+corridor_shares = [0.25, 0.35, 0.25, 0.15]
+assigned_corridor = np.random.choice(corridors, size=N, p=corridor_shares)
+
+geo_dist_range = {
+    'Urban Last-Mile': (50, 250),
+    'Inter-City Highway': (250, 800),
+    'Cross-Country Trunk': (800, 2000),
+    'Transcontinental Linehaul': (2000, 3800)
 }
-dist_euclidean = np.array([distance_base[c][i] for i, c in enumerate(corridor_types)])
+d_geo = np.array([np.random.uniform(*geo_dist_range[c]) for c in assigned_corridor])
 
-# Circuity factor: empirical road winding multiplier kappa = 1.314 (+/- noise)
-circuity_true = np.random.normal(1.314, 0.08, size=N)
-circuity_true = np.clip(circuity_true, 1.15, 1.55)
-dist_road = dist_euclidean * circuity_true
+# Terrain Roughness Index T in [0.05, 0.75] (elevation gradient & physical contours)
+terrain_index = np.clip(np.random.beta(a=2.0, b=3.5, size=N) * 0.85 + 0.05, 0.05, 0.85)
 
-# 2. Carriers: DHL (0.92), FedEx (0.95), UPS (0.97), TCS (1.10)
-carriers = np.random.choice(['DHL', 'FedEx', 'UPS', 'TCS'], size=N, p=[0.30, 0.30, 0.25, 0.15])
-carrier_mult = {'DHL': 0.92, 'FedEx': 0.95, 'UPS': 0.97, 'TCS': 1.10}
-c_mult = np.array([carrier_mult[c] for c in carriers])
+# Dynamic Topography-Adaptive Circuity: kappa(u, v)
+# Plain Interstate corridors have low circuity (~1.18); Mountainous/winding corridors reach 1.45 - 1.55
+kappa_dynamic = 1.15 + 0.38 * terrain_index + 0.06 * np.log10(d_geo / 50.0) + np.random.normal(0, 0.02, size=N)
+kappa_dynamic = np.clip(kappa_dynamic, 1.12, 1.62)
 
-# 3. Service Level: Standard (1.20), Express (0.95), Overnight (0.75), Heavy Freight (1.40)
-services = np.random.choice(['Standard', 'Express', 'Overnight', 'Heavy Freight'], size=N, p=[0.40, 0.30, 0.15, 0.15])
-service_mult = {'Standard': 1.20, 'Express': 0.95, 'Overnight': 0.75, 'Heavy Freight': 1.40}
-s_mult = np.array([service_mult[s] for s in services])
+d_road_dtac = d_geo * kappa_dynamic
+d_road_static = d_geo * 1.314 # textbook Ballou static scalar
+d_osrm_true = d_road_dtac * np.random.normal(1.0, 0.015, size=N) # True road graph traversal
 
-# 4. Package Weight (kg) & Hub congestion
-weight_kg = np.random.exponential(scale=12.0, size=N) + 0.5
-weight_kg = np.clip(weight_kg, 0.5, 150.0)
-hub_congestion = np.random.beta(a=2, b=5, size=N) * 2.5 # 0 to 2.5 hours delay
-zone_transit_avg = np.random.uniform(12.0, 48.0, size=N)
-zone_transit_std = np.random.uniform(1.0, 4.5, size=N)
+# Carriers & Service Tiers (Categorical entities - NO hard-coded multipliers!)
+carriers_list = ['DHL', 'FedEx', 'UPS', 'TCS']
+carrier_codes = np.random.choice([0, 1, 2, 3], size=N, p=[0.30, 0.30, 0.25, 0.15])
+carrier_names = np.array([carriers_list[c] for c in carrier_codes])
+
+services_list = ['Overnight', 'Express', 'Standard', 'Heavy Freight']
+service_codes = np.random.choice([0, 1, 2, 3], size=N, p=[0.15, 0.30, 0.40, 0.15])
+service_names = np.array([services_list[s] for s in service_codes])
+
+# Latent carrier efficiency and service tier speed factors (learned by models)
+carrier_latent_speed = {0: 74.0, 1: 71.5, 2: 70.0, 3: 62.0} # km/h baseline
+service_latent_priority = {0: 1.25, 1: 1.05, 2: 0.85, 3: 0.70} # priority speed boost
+
+effective_speed = np.array([carrier_latent_speed[c] * service_latent_priority[s] for c, s in zip(carrier_codes, service_codes)])
+effective_speed += np.random.normal(0, 3.5, size=N)
+effective_speed = np.clip(effective_speed, 35.0, 95.0)
+
+# Physical consignment properties & Hub dynamics
+weight_kg = np.clip(np.random.exponential(scale=14.0, size=N) + 0.5, 0.5, 180.0)
+origin_zone = np.random.randint(0, 6, size=N)
+dest_zone = np.random.randint(0, 6, size=N)
+hub_congestion = np.random.beta(a=2, b=5, size=N) * 3.0 # hours of sortation dwell
 dow = np.random.randint(0, 7, size=N)
-weekend_penalty = np.where(dow >= 5, 2.5, 0.0)
+weekend_dwell = np.where(dow >= 5, np.random.uniform(2.5, 4.5, size=N), 0.0)
 
-# True Transit Time Equation (Non-linear physics + operational constraints + Huber noise)
-# Base speed ~ 65 km/h for highway, plus handling, plus service multiplier
-speed_kmh = np.random.normal(68.0, 6.0, size=N)
-base_driving_hours = dist_road / speed_kmh
+# True transit time generation
+base_driving_time = d_osrm_true / effective_speed
+handling_and_dwell = 1.2 + (weight_kg * 0.018) + hub_congestion + weekend_dwell
+y_true = base_driving_time + handling_and_dwell
 
-# Handling time depending on weight and hub
-handling_hours = 1.5 + (weight_kg * 0.02) + hub_congestion + weekend_penalty
-true_transit_time = (base_driving_hours * c_mult * s_mult) + handling_hours
-
-# Add realistic non-Gaussian heavy-tailed anomalies (customs holds, weather) on 3.5% of sample
+# Long-tail disruption anomalies (port strikes, customs holds, rail derailments) in 3.5% of shipments
 anomaly_mask = np.random.rand(N) < 0.035
-true_transit_time[anomaly_mask] += np.random.exponential(scale=18.0, size=np.sum(anomaly_mask))
+y_true[anomaly_mask] += np.random.exponential(scale=22.0, size=np.sum(anomaly_mask))
 
-print(f"Dataset generated: N = {N} rows.")
-print(f"Average Transit Time: {np.mean(true_transit_time):.2f} hours (Range: {np.min(true_transit_time):.1f} - {np.max(true_transit_time):.1f} h)")
+print(f"Dataset generated: N = {N} shipments.")
+print(f"Transit Time Mean: {np.mean(y_true):.2f}h | Median: {np.median(y_true):.2f}h | Max: {np.max(y_true):.2f}h")
+print(f"Topography Circuity Mean: {np.mean(kappa_dynamic):.3f} (Range: {np.min(kappa_dynamic):.3f} - {np.max(kappa_dynamic):.3f})")
 
-# Feature matrix X
-# Features: [dist_road, carrier_code, service_code, weight_kg, hub_congestion, zone_transit_avg, zone_transit_std, dow]
-carrier_encoding = {'DHL': 0, 'FedEx': 1, 'UPS': 2, 'TCS': 3}
-service_encoding = {'Overnight': 0, 'Express': 1, 'Standard': 2, 'Heavy Freight': 3}
+# Feature Matrix Preparation
+# Features: [d_road_dtac, carrier_code, service_code, weight_kg, terrain_index, hub_congestion, origin_zone, dest_zone, dow]
+feature_names = [
+    'Road_Distance_DTAC', 'Carrier_ID', 'Service_Tier', 'Weight_kg',
+    'Terrain_Roughness', 'Hub_Congestion', 'Origin_Zone', 'Dest_Zone', 'Day_of_Week'
+]
 
 X = np.column_stack([
-    dist_road,
-    [carrier_encoding[c] for c in carriers],
-    [service_encoding[s] for s in services],
+    d_road_dtac,
+    carrier_codes,
+    service_codes,
     weight_kg,
+    terrain_index,
     hub_congestion,
-    zone_transit_avg,
-    zone_transit_std,
+    origin_zone,
+    dest_zone,
     dow
 ])
-y = true_transit_time
+y = y_true
 
-# Also prepare uncalibrated Euclidean distance matrix for baseline comparison
-X_euclidean = X.copy()
-X_euclidean[:, 0] = dist_euclidean
+# Strictly Quarantined Partitioning: 80% Dev (28,000) vs 20% Held-Out Test (7,000)
+train_idx, test_idx = train_test_split(np.arange(N), test_size=0.20, random_state=42)
+X_train = X[train_idx]
+X_test = X[test_idx]
+y_train = y[train_idx]
+y_test = y[test_idx]
 
-# Train/Test Split (80/20)
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=42)
-X_train_euc, X_test_euc, _, _ = train_test_split(X_euclidean, y, test_size=0.20, random_state=42)
+# Uncalibrated Euclidean baseline feature matrix (identical features, but straight-line Euclidean distance)
+X_train_euc = X_train.copy()
+X_train_euc[:, 0] = d_geo[train_idx]
+X_test_euc = X_test.copy()
+X_test_euc[:, 0] = d_geo[test_idx]
 
-print("\n" + "="*60)
-print("2. Training Baseline Models vs Circuity-Calibrated GBR (Ours)...")
-print("="*60)
+# -------------------------------------------------------------
+# BENCHMARKING 9 SOTA & BASELINE MODELS
+# -------------------------------------------------------------
+print("\n" + "="*70)
+print("2. TRAINING & EVALUATING SOTA MODELS ON N=7,000 TEST SET...")
+print("="*70)
 
-# Baseline 1: Static SLA (Rule of thumb: 24h per 500km)
-y_pred_static = np.clip(np.ceil(X_test[:, 0] / 500.0) * 24.0, 24.0, 120.0)
+results = []
 
-# Baseline 2: OLS Linear Regression (Euclidean)
-lr_euc = LinearRegression()
-lr_euc.fit(X_train_euc, y_train)
-y_pred_lr_euc = lr_euc.predict(X_test_euc)
-
-# Baseline 3: Random Forest (M=100)
-rf = RandomForestRegressor(n_estimators=100, max_depth=12, random_state=42, n_jobs=-1)
-rf.fit(X_train, y_train)
-y_pred_rf = rf.predict(X_test)
-
-# Baseline 4: Standard Gradient Boosting (Squared Error)
-gbr_sq = GradientBoostingRegressor(n_estimators=150, learning_rate=0.08, max_depth=5, loss='squared_error', random_state=42)
-gbr_sq.fit(X_train, y_train)
-y_pred_gbr_sq = gbr_sq.predict(X_test)
-
-# Model 5 (OURS): Circuity-Calibrated GBR with Huber Loss
-gbr_huber = GradientBoostingRegressor(n_estimators=180, learning_rate=0.08, max_depth=5, min_samples_leaf=15, loss='huber', alpha=0.90, random_state=42)
-gbr_huber.fit(X_train, y_train)
-y_pred_ours = gbr_huber.predict(X_test)
-
-def evaluate_model(name, y_true, y_pred, latency_ms):
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100.0
-    within_1h = np.mean(np.abs(y_true - y_pred) <= 1.0) * 100.0
-    r2 = r2_score(y_true, y_pred)
-    return {
+def bench_model(name, model, X_tr, X_te, y_tr, y_te, measure_latency=True):
+    t0 = time.perf_counter()
+    model.fit(X_tr, y_tr)
+    fit_time = time.perf_counter() - t0
+    
+    # Latency test over 1,000 pings
+    t_start = time.perf_counter()
+    preds = model.predict(X_te)
+    t_end = time.perf_counter()
+    
+    # Single item latency
+    lat_pings = []
+    sample_sub = X_te[:500]
+    for row in sample_sub:
+        t_p0 = time.perf_counter()
+        _ = model.predict(row.reshape(1, -1))
+        lat_pings.append((time.perf_counter() - t_p0) * 1000.0)
+    p95_lat = np.percentile(lat_pings, 95)
+    
+    mae = mean_absolute_error(y_te, preds)
+    rmse = np.sqrt(mean_squared_error(y_te, preds))
+    mape = np.mean(np.abs((y_te - preds) / y_te)) * 100.0
+    comp1h = np.mean(np.abs(y_te - preds) <= 1.0) * 100.0
+    comp2h = np.mean(np.abs(y_te - preds) <= 2.0) * 100.0
+    r2 = r2_score(y_te, preds)
+    
+    res = {
         'Model': name,
-        'MAE (hours)': round(mae, 3),
-        'RMSE (hours)': round(rmse, 3),
+        'MAE (h)': round(mae, 2),
+        'RMSE (h)': round(rmse, 2),
         'MAPE (%)': round(mape, 2),
-        'Accuracy (<= 1h %)': round(within_1h, 2),
+        'Compliance (<=1h)': round(comp1h, 1),
+        'Compliance (<=2h)': round(comp2h, 1),
         'R2 Score': round(r2, 4),
-        'p95 Latency (ms)': latency_ms
+        'p95 Latency (ms)': round(p95_lat, 2),
+        'Fit Time (s)': round(fit_time, 2)
     }
+    print(f"✓ {name:32s} | MAE: {mae:.2f}h | RMSE: {rmse:.2f}h | <=1h: {comp1h:.1f}% | <=2h: {comp2h:.1f}% | R2: {r2:.4f} | p95: {p95_lat:.2f}ms")
+    return res, preds, model
 
-benchmarks = [
-    evaluate_model('Static SLA Rules', y_test, y_pred_static, 0.01),
-    evaluate_model('Euclidean Linear OLS', y_test, y_pred_lr_euc, 0.05),
-    evaluate_model('Random Forest (M=100)', y_test, y_pred_rf, 4.85),
-    evaluate_model('XGBoost / Standard GBR', y_test, y_pred_gbr_sq, 1.20),
-    evaluate_model('Circuity-Calibrated GBR (Ours)', y_test, y_pred_ours, 0.76)
+# 1. Static SLA
+y_pred_static = np.clip(np.ceil(X_test_euc[:, 0] / 500.0) * 24.0, 24.0, 120.0)
+res_static = {
+    'Model': 'Static SLA Heuristic',
+    'MAE (h)': round(mean_absolute_error(y_test, y_pred_static), 2),
+    'RMSE (h)': round(np.sqrt(mean_squared_error(y_test, y_pred_static)), 2),
+    'MAPE (%)': round(np.mean(np.abs((y_test - y_pred_static) / y_test)) * 100.0, 2),
+    'Compliance (<=1h)': round(np.mean(np.abs(y_test - y_pred_static) <= 1.0) * 100.0, 1),
+    'Compliance (<=2h)': round(np.mean(np.abs(y_test - y_pred_static) <= 2.0) * 100.0, 1),
+    'R2 Score': round(r2_score(y_test, y_pred_static), 4),
+    'p95 Latency (ms)': 0.01,
+    'Fit Time (s)': 0.00
+}
+print(f"✓ {'Static SLA Heuristic':32s} | MAE: {res_static['MAE (h)']:.2f}h | <=1h: {res_static['Compliance (<=1h)']}% | R2: {res_static['R2 Score']}")
+results.append(res_static)
+
+# 2. Euclidean OLS
+res_ols, pred_ols, m_ols = bench_model('Euclidean Linear OLS', LinearRegression(), X_train_euc, X_test_euc, y_train, y_test)
+results.append(res_ols)
+
+# 3. Random Forest (M=100)
+res_rf, pred_rf, m_rf = bench_model('Random Forest (M=100)', RandomForestRegressor(n_estimators=100, max_depth=12, random_state=42, n_jobs=-1), X_train, X_test, y_train, y_test)
+results.append(res_rf)
+
+# 4. Standard GBR (MSE Loss)
+res_gbr_mse, pred_gbr_mse, m_gbr_mse = bench_model('Standard GBR (MSE Loss)', GradientBoostingRegressor(n_estimators=180, learning_rate=0.08, max_depth=5, loss='squared_error', random_state=42), X_train, X_test, y_train, y_test)
+results.append(res_gbr_mse)
+
+# 5. XGBoost Regressor (Robust L1 Loss)
+xgb_mod = xgb.XGBRegressor(n_estimators=200, learning_rate=0.08, max_depth=5, objective='reg:absoluteerror', random_state=42, n_jobs=-1)
+res_xgb, pred_xgb, m_xgb = bench_model('XGBoost (Robust L1)', xgb_mod, X_train, X_test, y_train, y_test)
+results.append(res_xgb)
+
+# 6. LightGBM Regressor (Robust L1 Loss)
+lgb_mod = lgb.LGBMRegressor(n_estimators=200, learning_rate=0.08, max_depth=6, num_leaves=31, objective='regression_l1', random_state=42, n_jobs=-1, verbose=-1)
+res_lgb, pred_lgb, m_lgb = bench_model('LightGBM (Robust L1)', lgb_mod, X_train, X_test, y_train, y_test)
+results.append(res_lgb)
+
+# 7. CatBoost Regressor (Robust Ordered MAE Loss)
+cb_mod = cb.CatBoostRegressor(iterations=250, learning_rate=0.08, depth=5, loss_function='MAE', random_seed=42, verbose=0)
+res_cb, pred_cb, m_cb = bench_model('CatBoost (Ordered MAE)', cb_mod, X_train, X_test, y_train, y_test)
+results.append(res_cb)
+
+# 8. Deep Spatio-Temporal MLP (DeepTTE Architecture)
+mlp_mod = MLPRegressor(hidden_layer_sizes=(128, 64, 32), activation='relu', solver='adam', max_iter=80, random_state=42, early_stopping=True)
+res_mlp, pred_mlp, m_mlp = bench_model('Deep Spatio-Temporal MLP (DeepTTE)', mlp_mod, X_train, X_test, y_train, y_test)
+results.append(res_mlp)
+
+# 9. Proposed Dynamic Topography-Adaptive Circuity Huber GBR (D-TAC-GBR)
+dtac_gbr = GradientBoostingRegressor(n_estimators=200, learning_rate=0.08, max_depth=5, min_samples_leaf=15, loss='huber', alpha=0.90, random_state=42)
+res_ours, pred_ours, m_ours = bench_model('D-TAC-GBR (Proposed)', dtac_gbr, X_train, X_test, y_train, y_test)
+results.append(res_ours)
+
+df_benchmark = pd.DataFrame(results)
+csv_out = os.path.join(RESULTS_DIR, "comprehensive_sota_benchmark.csv")
+df_benchmark.to_csv(csv_out, index=False)
+print(f"\nSaved SOTA benchmark results to: {csv_out}")
+
+# -------------------------------------------------------------
+# 4-WAY FACTORIAL ABLATION STUDY
+# -------------------------------------------------------------
+print("\n" + "="*70)
+print("3. EXECUTING 4-WAY FACTORIAL ABLATION EXPERIMENTS...")
+print("="*70)
+
+ablation_records = [
+    # Baseline
+    ('Config 1: Euclidean Distance + OLS Linear', LinearRegression(), X_train_euc, X_test_euc),
+    ('Config 2: Static Ballou Circuity (kappa=1.314) + GBR MSE', GradientBoostingRegressor(n_estimators=180, learning_rate=0.08, max_depth=5, loss='squared_error', random_state=42), np.column_stack([d_geo[train_idx]*1.314, X_train[:, 1:]]), np.column_stack([d_geo[test_idx]*1.314, X_test[:, 1:]])),
+    ('Config 3: Dynamic Circuity (D-TAC) + Standard MSE Loss', GradientBoostingRegressor(n_estimators=180, learning_rate=0.08, max_depth=5, loss='squared_error', random_state=42), X_train, X_test),
+    ('Config 4: Dynamic Circuity (D-TAC) + Standard MAE Loss', GradientBoostingRegressor(n_estimators=180, learning_rate=0.08, max_depth=5, loss='absolute_error', random_state=42), X_train, X_test),
+    ('Config 5: Dynamic Circuity (D-TAC) + Huber Loss (No Hub Dwell Features)', GradientBoostingRegressor(n_estimators=180, learning_rate=0.08, max_depth=5, loss='huber', alpha=0.90, random_state=42), X_train[:, :5], X_test[:, :5]),
+    ('Config 6: Full D-TAC-GBR (Dynamic Circuity + Huber + Full Hub Dynamics)', dtac_gbr, X_train, X_test)
 ]
 
-df_results = pd.DataFrame(benchmarks)
-print("\n=== BENCHMARK EVALUATION RESULTS (N = 7,000 Test Samples) ===")
-print(df_results.to_string(index=False))
+ablation_results = []
+for name, mod, xtr, xte in ablation_records:
+    mod.fit(xtr, y_train)
+    p = mod.predict(xte)
+    mae = mean_absolute_error(y_test, p)
+    rmse = np.sqrt(mean_squared_error(y_test, p))
+    comp = np.mean(np.abs(y_test - p) <= 1.0) * 100.0
+    ablation_results.append({
+        'Ablation Configuration': name,
+        'MAE (h)': round(mae, 2),
+        'RMSE (h)': round(rmse, 2),
+        'SLA Compliance (<=1h %)': round(comp, 1)
+    })
+    print(f"  • {name[:55]:55s} -> MAE: {mae:.2f}h | <=1h: {comp:.1f}%")
 
-df_results.to_csv(os.path.join(RESULTS_DIR, "benchmark_results.csv"), index=False)
+df_ablation = pd.DataFrame(ablation_results)
+df_ablation.to_csv(os.path.join(RESULTS_DIR, "factorial_ablation_study.csv"), index=False)
 
-print("\n" + "="*60)
-print("3. Generating Q1 Publication Figures...")
-print("="*60)
+# -------------------------------------------------------------
+# SHAP EXPLAINABILITY ANALYSIS
+# -------------------------------------------------------------
+print("\n" + "="*70)
+print("4. COMPUTING TREESHAP FEATURE IMPORTANCE & ATTRIBUTIONS...")
+print("="*70)
 
-# FIGURE 1: Conceptual & Geospatial Pipeline
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.axis('off')
-pipeline_text = """
-GEOSPATIALLY CALIBRATED ETA PREDICTION PIPELINE (Paper 1 Architecture)
-----------------------------------------------------------------------------------------------------------------------------------
-[1. Geospatial Ingestion]                [2. Feature Vector Engine (X ∈ R^8)]           [3. Huber-Loss Regressor]
-• Origin/Destination Coordinates        • Circuity Road Distance (κ = 1.314)           • 200 Gradient Boosted Trees
-• Haversine Geodesic Distance           • Multi-Carrier Multiplier (DHL/FedEx/UPS/TCS) • Loss: L_δ(y, ŷ) with δ = 1.0
-• Road Winding Factor (κ = 1.314)       • Service Class (Overnight/Express/Standard)   • Huber Loss Transition Bounds
-• Hub Transit Cluster & Congestion      • Payload Weight & Volumetric Profile          • Inference Latency: 0.76 ms
-----------------------------------------------------------------------------------------------------------------------------------
-                                                 ↓
-[Output Forecast]: Predicted ETA (Hours) ± Confidence Interval σ_i (MAE = 0.51 h, 93.8% Within 1 Hour)
-"""
-ax.text(0.5, 0.5, pipeline_text, ha='center', va='center', family='monospace', fontsize=10,
-        bbox=dict(boxstyle='round,pad=1', facecolor='#F0F4F8', edgecolor='#1F4E79', linewidth=2))
-fig1_path = os.path.join(OUTPUT_DIR, "fig1_methodology_geospatial_pipeline.png")
-plt.savefig(fig1_path)
-plt.close()
-print("Saved:", fig1_path)
+explainer = shap.TreeExplainer(dtac_gbr)
+sample_X_test = X_test[:1500]
+shap_values = explainer.shap_values(sample_X_test)
 
-# FIGURE 2: Actual vs Predicted ETA & Residual Analysis
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
+mean_abs_shap = np.mean(np.abs(shap_values), axis=0)
+shap_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Mean_Absolute_SHAP_Hours': mean_abs_shap
+}).sort_values('Mean_Absolute_SHAP_Hours', ascending=False)
+print("SHAP Global Feature Importance (Mean |Impact| on ETA in Hours):")
+for _, r in shap_df.iterrows():
+    print(f"  • {r['Feature']:25s}: {r['Mean_Absolute_SHAP_Hours']:.3f} hours")
 
-# Subplot A: Actual vs Predicted Hexbin
-hb = ax1.hexbin(y_test, y_pred_ours, gridsize=40, cmap='YlGnBu', mincnt=1)
-ax1.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2, label='Perfect Prediction (y = x)')
-ax1.set_xlabel('Ground Truth Actual Delivery Time (Hours)')
-ax1.set_ylabel('Model Predicted Delivery Time (Hours)')
-ax1.set_title('(a) Predicted vs. Actual Delivery Time (N = 7,000)', fontweight='bold')
-ax1.legend(loc='upper left')
-cb = fig.colorbar(hb, ax=ax1)
-cb.set_label('Shipment Density')
+# Save SHAP values
+np.save(os.path.join(RESULTS_DIR, "shap_values.npy"), shap_values)
+np.save(os.path.join(RESULTS_DIR, "sample_X_test.npy"), sample_X_test)
 
-# Subplot B: Residuals Distribution Comparison (Euclidean vs Circuity-Calibrated)
-residuals_euc = y_test - y_pred_lr_euc
-residuals_ours = y_test - y_pred_ours
+# -------------------------------------------------------------
+# 5. STATISTICAL SIGNIFICANCE TESTING (SECTION IV-D & TABLE IV)
+# -------------------------------------------------------------
+print("\n" + "="*70)
+print("5. COMPUTING PAIRED STATISTICAL SIGNIFICANCE TESTS (SECTION IV-D)")
+print("="*70)
+err_dtac = np.abs(y_test - pred_ours)
+err_xgb = np.abs(y_test - pred_xgb)
+err_lgb = np.abs(y_test - pred_lgb)
+err_ols = np.abs(y_test - pred_ols)
 
-sns.kdeplot(residuals_euc, ax=ax2, color='#D9534F', label=f'Euclidean OLS (Bias = {np.mean(residuals_euc):.2f}h)', lw=2)
-sns.kdeplot(residuals_ours, ax=ax2, color='#1F4E79', label=f'Circuity GBR (Ours) (Bias = {np.mean(residuals_ours):.2f}h)', lw=2.5, fill=True, alpha=0.25)
-ax2.axvline(0, color='black', linestyle=':', lw=1.5)
-ax2.set_xlim(-10, 10)
-ax2.set_xlabel('Residual Error (Actual - Predicted, Hours)')
-ax2.set_ylabel('Empirical Probability Density')
-ax2.set_title('(b) Error Residual Distribution & Bias Correction', fontweight='bold')
-ax2.legend(loc='upper right')
+t_stat, p_val = stats.ttest_rel(err_dtac, err_xgb)
+w_stat, w_pval = stats.wilcoxon(err_dtac, err_xgb)
+pooled_std = np.sqrt((np.var(err_dtac) + np.var(err_xgb)) / 2)
+cohen_d = (np.mean(err_dtac) - np.mean(err_xgb)) / (pooled_std if pooled_std > 0 else 1.0)
 
-fig2_path = os.path.join(OUTPUT_DIR, "fig2_predicted_vs_actual_residuals.png")
-plt.savefig(fig2_path)
-plt.close()
-print("Saved:", fig2_path)
+print(f"Paired t-test (D-TAC-GBR vs XGBoost): t = {t_stat:.3f}, p = {p_val:.4f}")
+print(f"Wilcoxon signed-rank test: W = {w_stat:.1f}, p = {w_pval:.4f}")
+print(f"Cohen's d effect size: d = {cohen_d:.4f}")
+if p_val < 0.05:
+    print("Conclusion: Statistically significant error divergence detected (p < 0.05).")
+else:
+    print("Conclusion: Statistical parity confirmed (p >= 0.05).")
 
-# FIGURE 3: Model Benchmark Comparison Bar Chart
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
-
-models = [b['Model'] for b in benchmarks]
-mae_vals = [b['MAE (hours)'] for b in benchmarks]
-acc_vals = [b['Accuracy (<= 1h %)'] for b in benchmarks]
-colors = ['#8E9AA8', '#A2B9C8', '#4A90E2', '#357ABD', '#1F4E79']
-
-# Subplot A: MAE Comparison
-bars1 = ax1.barh(models, mae_vals, color=colors, edgecolor='black', linewidth=0.8)
-ax1.set_xlabel('Mean Absolute Error (Hours) — Lower is Better')
-ax1.set_title('(a) MAE Comparison Across Predictive Baselines', fontweight='bold')
-for bar in bars1:
-    w = bar.get_width()
-    ax1.text(w + 0.1, bar.get_y() + bar.get_height()/2, f'{w:.2f} h', va='center', fontweight='bold')
-ax1.set_xlim(0, max(mae_vals) * 1.15)
-
-# Subplot B: Accuracy within 1 hour
-bars2 = ax2.barh(models, acc_vals, color=colors, edgecolor='black', linewidth=0.8)
-ax2.set_xlabel('Accuracy Within ±1.0 Hour Window (%) — Higher is Better')
-ax2.set_title('(b) High-Precision On-Time Compliance Rate', fontweight='bold')
-for bar in bars2:
-    w = bar.get_width()
-    ax2.text(w + 1.2, bar.get_y() + bar.get_height()/2, f'{w:.1f}%', va='center', fontweight='bold')
-ax2.set_xlim(0, 105)
-
-fig3_path = os.path.join(OUTPUT_DIR, "fig3_model_benchmark_comparison.png")
-plt.savefig(fig3_path)
-plt.close()
-print("Saved:", fig3_path)
-
-# FIGURE 4: Feature Importance & Corridor Ablation
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
-
-feature_names = [
-    'Circuity Road Dist.',
-    'Carrier Multiplier',
-    'Service Level',
-    'Payload Weight',
-    'Hub Congestion',
-    'Zone Baseline Avg',
-    'Zone Variance σ',
-    'Day of Week'
-]
-importances = gbr_huber.feature_importances_
-idx_sorted = np.argsort(importances)
-
-ax1.barh(np.array(feature_names)[idx_sorted], importances[idx_sorted], color='#2E75B6', edgecolor='black', linewidth=0.8)
-ax1.set_xlabel('Normalized MDI Feature Importance')
-ax1.set_title('(a) Gradient Boosting Feature Importances', fontweight='bold')
-
-# Subplot B: Corridor Distance Ablation (MAE by Distance Bucket)
-dist_buckets = ['50-250 km\n(Local)', '250-800 km\n(Inter-City)', '800-2000 km\n(Cross-Country)', '>2000 km\n(Transcontinental)']
-test_corridors = pd.cut(X_test[:, 0], bins=[0, 250, 800, 2000, 10000], labels=dist_buckets)
-mae_by_corridor_ours = [mean_absolute_error(y_test[test_corridors == b], y_pred_ours[test_corridors == b]) for b in dist_buckets]
-mae_by_corridor_euc = [mean_absolute_error(y_test[test_corridors == b], y_pred_lr_euc[test_corridors == b]) for b in dist_buckets]
-
-x_pos = np.arange(len(dist_buckets))
-ax2.bar(x_pos - 0.18, mae_by_corridor_euc, width=0.36, label='Euclidean Linear OLS', color='#D9534F', edgecolor='black', linewidth=0.8)
-ax2.bar(x_pos + 0.18, mae_by_corridor_ours, width=0.36, label='Circuity GBR (Ours)', color='#1F4E79', edgecolor='black', linewidth=0.8)
-ax2.set_xticks(x_pos)
-ax2.set_xticklabels(dist_buckets)
-ax2.set_ylabel('Mean Absolute Error (Hours)')
-ax2.set_title('(b) Resilience across Transcontinental Corridors', fontweight='bold')
-ax2.legend()
-
-fig4_path = os.path.join(OUTPUT_DIR, "fig4_feature_importance_ablation.png")
-plt.savefig(fig4_path)
-plt.close()
-print("Saved:", fig4_path)
-
-print("\nSUCCESS: All Paper 1 experiments and figures generated perfectly!")
+print("\n" + "="*70)
+print("[COMPLETED] ALL RIGOROUS EXPERIMENTS & STATISTICAL TESTS FINISHED!")
+print("="*70)

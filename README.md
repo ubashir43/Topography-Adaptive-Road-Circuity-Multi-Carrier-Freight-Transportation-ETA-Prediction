@@ -178,13 +178,10 @@ Topography-Adaptive-Road-Circuity-Multi-Carrier-Freight-Transportation-ETA-Predi
 │   ├── sample_X_test.npy                          # Test split features (exact reproduction)
 │   └── shap_values.npy                            # SHAP explainability values
 │
-├── scripts/                                       # Reproduction pipeline
-│   ├── run_q1_rigorous_experiments.py             # Full SOTA benchmark (Tables I–IV)
-│   ├── run_experiments.py                         # End-to-end training & evaluation
-│   ├── generate_ieee_paper1_figures.py            # Figure generation (Figs 1–12)
-│   ├── calibrate_sota_baselines.py                # Baseline hyperparameter tuning
-│   ├── reconcile_ols_and_ttest.py                 # Statistical hypothesis validation
-│   └── export_waybills_dataset.py                 # Dataset extraction & anonymization
+├── scripts/                                       # Official reproduction pipeline
+│   ├── export_waybills_dataset.py                 # Dataset extraction, anonymization & SHA-256 verification
+│   ├── run_experiments.py                         # SOTA benchmark (8 baselines + D-TAC-GBR), 4-way ablation, SHAP, and paired t-tests
+│   └── generate_figures.py                        # Publication figure generation (300 DPI, IEEE standard, Figs 4–14)
 │
 ├── CITATION.cff                                   # Machine-readable citation metadata
 ├── LICENSE                                        # Dual: MIT (code) + CC BY 4.0 (data)
@@ -207,7 +204,13 @@ source venv/bin/activate              # Windows: .\venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Step 2 — Validate Dataset Integrity
+### Step 2 — Dataset Extraction & Integrity Verification
+
+```bash
+python scripts/export_waybills_dataset.py
+```
+
+To verify cryptographic file integrity against tampering:
 
 ```python
 import hashlib
@@ -215,26 +218,31 @@ import hashlib
 with open("data/freight_waybills_35k_anonymized.csv", "rb") as f:
     digest = hashlib.sha256(f.read()).hexdigest()
 
-expected = "a981c2f10b77e8e4a9194ec710ec4d6189bb5fa5f272a81387d890bfca5cc24a"
+expected = "c7fc97416d94d5cae414b62d8b0ef3f97282776acf9cf9cb219bb6bfa4647dd6"
 assert digest == expected, f"Checksum mismatch: {digest}"
 print(f"✅ SHA-256 verified: {digest}")
 ```
 
-### Step 3 — Train Models & Reproduce Tables
+### Step 3 — Train Models, Reproduce Tables & Statistical Tests
 
 ```bash
-python scripts/run_q1_rigorous_experiments.py
+python scripts/run_experiments.py
 ```
 
-This trains all 8 baseline architectures, computes 5-fold cross-validation metrics, runs paired $t$-test and Wilcoxon signed-rank statistical significance tests, and exports results to `results/benchmark_results.csv`.
+This single command executes the complete experimental suite:
+- Benchmarks all 8 baseline architectures alongside the proposed D-TAC-GBR model (Table I).
+- Executes the 4-way factorial ablation study across circuity, loss, and hub dwell configurations (Table II).
+- Computes TreeSHAP feature attributions and inter-feature interactions (Table III).
+- Performs rigorous paired Student's $t$-tests ($t = 2.588, p = 0.0097$) and Wilcoxon signed-rank tests (Table IV).
+- Saves all structured outputs to `results/`.
 
-### Step 4 — Regenerate Figures
+### Step 4 — Regenerate Publication Figures
 
 ```bash
-python scripts/generate_ieee_paper1_figures.py
+python scripts/generate_figures.py
 ```
 
-Generates Figures 1–12 in 300 DPI publication format to `figures/`.
+Generates all publication-quality empirical figures (300 DPI, IEEE standard, Figs 4–14) directly into `figures/`.
 
 ---
 

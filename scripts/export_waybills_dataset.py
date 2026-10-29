@@ -3,8 +3,10 @@ import numpy as np
 import pandas as pd
 import hashlib
 
-os.makedirs(r"d:\Logistics Research\Paper1\data", exist_ok=True)
-csv_out = r"d:\Logistics Research\Paper1\data\freight_waybills_35k_anonymized.csv"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+csv_out = os.path.join(DATA_DIR, "freight_waybills_35k_anonymized.csv")
 
 np.random.seed(42)
 N = 35000

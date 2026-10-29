@@ -1,10 +1,10 @@
 Model,MAE (h),RMSE (h),MAPE (%),Compliance (<=1h),Compliance (<=2h),R2 Score,p95 Latency (ms),Fit Time (s)
-Static SLA Heuristic,40.05,51.66,366.96,1.4,2.8,-4.3115,0.01,0.0
-Euclidean Linear OLS,3.93,7.26,24.03,21.8,40.7,0.8952,0.39,0.02
-Random Forest (M=100),2.51,6.39,11.47,48.6,71.2,0.9187,57.39,2.01
-Standard GBR (MSE Loss),2.25,6.08,10.03,49.7,75.6,0.9265,0.86,22.54
-XGBoost (Robust L1),1.85,5.99,5.8,66.2,81.9,0.9286,2.17,0.8
-LightGBM (Robust L1),1.88,5.99,5.82,65.0,81.4,0.9285,6.21,1.72
-CatBoost (Ordered MAE),1.86,5.99,5.74,65.6,81.5,0.9286,2.48,2.31
-Deep Spatio-Temporal MLP (DeepTTE),3.0,6.46,14.41,30.6,55.4,0.917,0.59,35.0
-D-TAC-GBR (Proposed),1.87,5.97,6.03,66.0,81.7,0.929,0.9,28.65
+Static SLA Heuristic,31.09,35.71,184.2,0.1,0.3,-1.5374,0.01,0.0
+Euclidean Linear OLS,3.93,7.26,24.03,21.8,40.7,0.8952,0.06,0.01
+Random Forest (M=100),2.51,6.39,11.47,48.6,71.2,0.9187,18.26,1.36
+Standard GBR (MSE Loss),2.25,6.08,10.03,49.7,75.6,0.9265,0.26,11.02
+XGBoost (Robust L1),1.85,5.99,5.8,66.2,81.9,0.9286,0.88,0.57
+LightGBM (Robust L1),1.88,5.99,5.82,65.0,81.4,0.9285,0.9,0.29
+CatBoost (Ordered MAE),1.86,5.99,5.74,65.6,81.5,0.9286,0.77,1.1
+Deep Spatio-Temporal MLP (DeepTTE),3.0,6.46,14.41,30.6,55.4,0.917,0.11,13.8
+D-TAC-GBR (Proposed),1.87,5.97,6.03,66.0,81.7,0.929,0.3,14.29
