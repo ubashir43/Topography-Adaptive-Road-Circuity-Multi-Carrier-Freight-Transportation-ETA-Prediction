@@ -180,8 +180,7 @@ Topography-Adaptive-Road-Circuity-Multi-Carrier-Freight-Transportation-ETA-Predi
 │
 ├── scripts/                                       # Official reproduction pipeline
 │   ├── export_waybills_dataset.py                 # Dataset extraction, anonymization & SHA-256 verification
-│   ├── run_experiments.py                         # SOTA benchmark (8 baselines + D-TAC-GBR), 4-way ablation, SHAP, and paired t-tests
-│   └── generate_figures.py                        # Publication figure generation (300 DPI, IEEE standard, Figs 4–14)
+│   └── run_experiments.py                         # SOTA benchmark (8 baselines + D-TAC-GBR), 4-way ablation, SHAP, and paired t-tests
 │
 ├── CITATION.cff                                   # Machine-readable citation metadata
 ├── LICENSE                                        # Dual: MIT (code) + CC BY 4.0 (data)
@@ -235,14 +234,6 @@ This single command executes the complete experimental suite:
 - Computes TreeSHAP feature attributions and inter-feature interactions (Table III).
 - Performs rigorous paired Student's $t$-tests ($t = 2.588, p = 0.0097$) and Wilcoxon signed-rank tests (Table IV).
 - Saves all structured outputs to `results/`.
-
-### Step 4 — Regenerate Publication Figures
-
-```bash
-python scripts/generate_figures.py
-```
-
-Generates all publication-quality empirical figures (300 DPI, IEEE standard, Figs 4–14) directly into `figures/`.
 
 ---
 
